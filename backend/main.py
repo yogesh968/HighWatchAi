@@ -26,7 +26,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         frontend_url,
-        "https://hiighwatch-rag.vercel.app",
+        "https://high-watch-ai.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000"
     ],
