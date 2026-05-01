@@ -134,8 +134,9 @@ def auth_callback(state: str, code: str):
 
 @router.post("/disconnect-drive")
 def disconnect_drive():
-    # Keep token.json so Google doesn't show the warning screen again
-    # Only clear local synced files
+    # Delete token.json so user can re-authenticate fresh
+    if os.path.exists(TOKEN_FILE):
+        os.remove(TOKEN_FILE)
     sync_dir = "synced_docs"
     if os.path.exists(sync_dir):
         for fname in os.listdir(sync_dir):
@@ -155,39 +156,49 @@ def sync_drive(force: Optional[bool] = False, folder_url: Optional[str] = None):
     if not os.path.exists(TOKEN_FILE):
         raise HTTPException(status_code=401, detail="Not authenticated. Please login first.")
 
-    if force:
-        try:
-            user_email = _get_user_email()
-            files_collection.delete_many({"user_email": user_email})
-        except Exception:
-            pass
-        sync_dir = "synced_docs"
-        if os.path.exists(sync_dir):
-            for fname in os.listdir(sync_dir):
-                fp = os.path.join(sync_dir, fname)
-                if os.path.isfile(fp):
-                    os.remove(fp)
+    try:
+        if force:
+            try:
+                user_email = _get_user_email()
+                files_collection.delete_many({"user_email": user_email})
+            except Exception:
+                pass
+            sync_dir = "synced_docs"
+            if os.path.exists(sync_dir):
+                for fname in os.listdir(sync_dir):
+                    fp = os.path.join(sync_dir, fname)
+                    if os.path.isfile(fp):
+                        os.remove(fp)
 
-    items, user_email = get_files_to_sync(page_size=20, force=bool(force), folder_url=folder_url)
-    if not items:
-        return {"status": "success", "files_processed": 0, "message": "No new files to sync.", "files": []}
+        items, user_email = get_files_to_sync(page_size=20, force=bool(force), folder_url=folder_url)
+        if not items:
+            return {"status": "success", "files_processed": 0, "message": "No new files to sync.", "files": []}
 
-    t0 = time.time()
-    downloaded = download_items(items, user_email); gc.collect()
+        t0 = time.time()
+        downloaded = download_items(items, user_email); gc.collect()
 
-    if downloaded:
-        chunks = process_files(downloaded); gc.collect()
-        if chunks:
-            embedded = embed_chunks(chunks); gc.collect()
-            add_to_faiss(embedded); gc.collect()
+        if downloaded:
+            chunks = process_files(downloaded); gc.collect()
+            if chunks:
+                embedded = embed_chunks(chunks); gc.collect()
+                add_to_faiss(embedded); gc.collect()
 
-    print(f"Sync done in {round(time.time()-t0, 2)}s")
-    return {
-        "status": "success",
-        "files_processed": len(items),
-        "message": f"Synced and indexed {len(downloaded)} files.",
-        "files": [{"id": f["id"], "name": f["name"]} for f in items]
-    }
+        print(f"Sync done in {round(time.time()-t0, 2)}s")
+        return {
+            "status": "success",
+            "files_processed": len(items),
+            "message": f"Synced and indexed {len(downloaded)} files.",
+            "files": [{"id": f["id"], "name": f["name"]} for f in items]
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        error_msg = str(e)
+        if "Google Drive API has not been used" in error_msg:
+            error_msg = "Google Drive API is not enabled. Please enable it in Google Cloud Console."
+        elif "invalid_grant" in error_msg or "Token has been expired" in error_msg:
+            error_msg = "Session expired. Please logout and login again."
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @router.get("/storage/stats")
 def storage_stats():
