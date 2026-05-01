@@ -27,6 +27,7 @@ app.add_middleware(
     allow_origins=[
         frontend_url,
         "https://high-watch-ai.vercel.app",
+        "https://high-watch-ai-git-main-yogesh-kumars-projects-b37dbb16.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000"
     ],
